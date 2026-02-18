@@ -4,12 +4,15 @@ use serde::{Deserialize, Serialize};
 ///
 /// Covers world space `[0, width * scale) × [0, height * scale)`.
 /// `width` and `height` are grid-cell counts; `scale` is world units per cell.
+///
+/// The invariant `data.len() == width * height` is enforced by all constructors
+/// and mutation methods; fields are private to prevent external corruption.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeightMap {
-    pub data: Vec<f32>,
-    pub width: usize,
-    pub height: usize,
-    pub scale: f32,
+    data: Vec<f32>,
+    width: usize,
+    height: usize,
+    scale: f32,
 }
 
 impl HeightMap {
@@ -24,9 +27,58 @@ impl HeightMap {
         }
     }
 
+    /// Grid-cell width.
+    #[inline]
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Grid-cell depth.
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// World units per grid cell.
+    #[inline]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Read-only view of the flat row-major height buffer.
+    #[inline]
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+
+    /// Mutable view of the flat row-major height buffer.
+    ///
+    /// The caller must not change the slice length; only element values may be
+    /// modified.  Dimensions (`width`, `height`) are unaffected.
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut [f32] {
+        &mut self.data
+    }
+
+    /// Resize the heightmap and zero all values.
+    ///
+    /// Used internally by generators (e.g. `DiamondSquare`) that need to
+    /// resize the map to fit their algorithm's requirements.
+    pub(crate) fn reinitialize(&mut self, width: usize, height: usize) {
+        assert!(width > 0 && height > 0, "dimensions must be positive");
+        self.width = width;
+        self.height = height;
+        self.data = vec![0.0; width * height];
+    }
+
     #[inline]
     pub fn get(&self, x: usize, z: usize) -> f32 {
         self.data[z * self.width + x]
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, x: usize, z: usize) -> &mut f32 {
+        &mut self.data[z * self.width + x]
     }
 
     #[inline]
@@ -64,6 +116,9 @@ impl HeightMap {
 
     /// Compute surface normal at world position using central differences.
     /// Returns a normalized `[x, y, z]` vector where `y` is up.
+    ///
+    /// `scale` is always > 0 (enforced by the constructor), so the `2*scale`
+    /// divisor and the `len` (≥ 1.0 since ny = 1) are both safe.
     pub fn get_normal_at(&self, world_x: f32, world_z: f32) -> [f32; 3] {
         let step = self.scale;
         let hl = self.get_height_at(world_x - step, world_z);
@@ -77,6 +132,7 @@ impl HeightMap {
         let nx = -dhdx;
         let ny = 1.0_f32;
         let nz = -dhdz;
+        // len >= sqrt(ny²) = 1.0, so division is always safe.
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
         [nx / len, ny / len, nz / len]
     }

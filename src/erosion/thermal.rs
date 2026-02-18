@@ -37,16 +37,19 @@ impl ThermalErosion {
 
     /// Apply thermal erosion to `heightmap` in-place.
     pub fn erode(&self, heightmap: &mut HeightMap) {
-        let w = heightmap.width;
-        let h = heightmap.height;
+        let w = heightmap.width();
+        let h = heightmap.height();
 
         // Offsets for the 4 cardinal neighbours.
         const NEIGHBOURS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
+        // Allocate the delta buffer once and zero it each iteration to avoid
+        // 50+ separate heap allocations inside the loop.
+        let mut delta = vec![0.0_f32; w * h];
+
         for _ in 0..self.iterations {
-            // Collect all transfers so we don't read from cells we've just
-            // written to within the same iteration.
-            let mut delta = vec![0.0_f32; w * h];
+            // Zero the reused buffer.
+            delta.fill(0.0);
 
             for z in 0..h {
                 for x in 0..w {
@@ -90,7 +93,7 @@ impl ThermalErosion {
             }
 
             // Apply the accumulated delta.
-            for (v, d) in heightmap.data.iter_mut().zip(delta.iter()) {
+            for (v, d) in heightmap.data_mut().iter_mut().zip(delta.iter()) {
                 *v += d;
             }
         }

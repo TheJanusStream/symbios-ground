@@ -41,7 +41,7 @@ fn heightmap_bilinear_clamped() {
 fn heightmap_normal_flat_terrain() {
     // A flat heightmap should return a perfectly up-facing normal.
     let mut hm = HeightMap::new(8, 8, 1.0);
-    for v in hm.data.iter_mut() {
+    for v in hm.data_mut().iter_mut() {
         *v = 0.5;
     }
     let n = hm.get_normal_at(4.0, 4.0);
@@ -54,8 +54,8 @@ fn heightmap_normal_flat_terrain() {
 fn heightmap_normal_is_unit_length() {
     let mut hm = HeightMap::new(17, 17, 1.0);
     DiamondSquare::new(7, 0.6).generate(&mut hm);
-    for z in 1..(hm.height - 1) {
-        for x in 1..(hm.width - 1) {
+    for z in 1..(hm.height() - 1) {
+        for x in 1..(hm.width() - 1) {
             let n = hm.get_normal_at(x as f32, z as f32);
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             assert!((len - 1.0).abs() < 1e-4, "normal not unit length: {len}");
@@ -66,12 +66,12 @@ fn heightmap_normal_is_unit_length() {
 #[test]
 fn heightmap_normalize() {
     let mut hm = HeightMap::new(4, 4, 1.0);
-    for (i, v) in hm.data.iter_mut().enumerate() {
+    for (i, v) in hm.data_mut().iter_mut().enumerate() {
         *v = i as f32;
     }
     hm.normalize();
-    let min = hm.data.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = hm.data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = hm.data().iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = hm.data().iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     assert!((min - 0.0).abs() < 1e-5);
     assert!((max - 1.0).abs() < 1e-5);
 }
@@ -91,7 +91,7 @@ fn heightmap_world_dimensions() {
 fn diamond_square_output_in_unit_range() {
     let mut hm = HeightMap::new(65, 65, 1.0);
     DiamondSquare::new(42, 0.7).generate(&mut hm);
-    for &v in &hm.data {
+    for &v in hm.data() {
         assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
     }
 }
@@ -101,8 +101,8 @@ fn diamond_square_resizes_to_power_of_two_plus_one() {
     let mut hm = HeightMap::new(100, 100, 1.0);
     DiamondSquare::new(1, 0.5).generate(&mut hm);
     // 100 → nearest 2^n+1 = 129
-    assert_eq!(hm.width, 129);
-    assert_eq!(hm.height, 129);
+    assert_eq!(hm.width(), 129);
+    assert_eq!(hm.height(), 129);
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn diamond_square_deterministic() {
     let mut b = HeightMap::new(33, 33, 1.0);
     DiamondSquare::new(99, 0.5).generate(&mut a);
     DiamondSquare::new(99, 0.5).generate(&mut b);
-    assert_eq!(a.data, b.data);
+    assert_eq!(a.data(), b.data());
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn diamond_square_different_seeds_differ() {
     let mut b = HeightMap::new(33, 33, 1.0);
     DiamondSquare::new(1, 0.5).generate(&mut a);
     DiamondSquare::new(2, 0.5).generate(&mut b);
-    assert_ne!(a.data, b.data);
+    assert_ne!(a.data(), b.data());
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ fn diamond_square_different_seeds_differ() {
 fn fbm_output_in_unit_range() {
     let mut hm = HeightMap::new(64, 64, 1.0);
     FbmNoise::new(123).generate(&mut hm);
-    for &v in &hm.data {
+    for &v in hm.data() {
         assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
     }
 }
@@ -142,7 +142,7 @@ fn fbm_deterministic() {
     let mut b = HeightMap::new(32, 32, 1.0);
     FbmNoise::new(7).generate(&mut a);
     FbmNoise::new(7).generate(&mut b);
-    assert_eq!(a.data, b.data);
+    assert_eq!(a.data(), b.data());
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ fn fbm_deterministic() {
 fn voronoi_output_in_unit_range() {
     let mut hm = HeightMap::new(64, 64, 1.0);
     VoronoiTerracing::new(5, 20, 5).generate(&mut hm);
-    for &v in &hm.data {
+    for &v in hm.data() {
         assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
     }
 }
@@ -164,7 +164,7 @@ fn voronoi_deterministic() {
     let mut b = HeightMap::new(32, 32, 1.0);
     VoronoiTerracing::new(3, 12, 4).generate(&mut a);
     VoronoiTerracing::new(3, 12, 4).generate(&mut b);
-    assert_eq!(a.data, b.data);
+    assert_eq!(a.data(), b.data());
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +184,7 @@ fn hydraulic_erosion_changes_heightmap() {
     DiamondSquare::new(1, 0.6).generate(&mut before);
     let mut after = before.clone();
     HydraulicErosion::new(42).erode(&mut after);
-    assert_ne!(before.data, after.data);
+    assert_ne!(before.data(), after.data());
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,9 @@ use crate::{HeightMap, TerrainGenerator};
 /// Places random seed points across the heightmap and assigns each cell a
 /// quantised height based on which seed it is closest to, creating the
 /// characteristic stepped plateau landscape of Voronoi terracing.
+///
+/// Nearest-seed queries are accelerated with a uniform spatial grid, reducing
+/// complexity from O(N·M·S) to approximately O(N·M·√S).
 #[derive(Debug, Clone)]
 pub struct VoronoiTerracing {
     pub seed: u64,
@@ -44,25 +47,71 @@ impl TerrainGenerator for VoronoiTerracing {
             .map(|i| i as f32 / (self.num_seeds - 1).max(1) as f32)
             .collect();
 
-        let w = heightmap.width as f32;
-        let h = heightmap.height as f32;
+        // Build a uniform spatial grid to accelerate nearest-seed queries.
+        // Grid side length ≈ √S gives ~1 seed per cell on average.
+        let grid_size = ((self.num_seeds as f64).sqrt().ceil() as usize).max(1);
+        let cell_w = 1.0_f32 / grid_size as f32;
+        let mut grid: Vec<Vec<usize>> = vec![vec![]; grid_size * grid_size];
+        for (i, &(sx, sz)) in seeds.iter().enumerate() {
+            let gx = ((sx / cell_w) as usize).min(grid_size - 1);
+            let gz = ((sz / cell_w) as usize).min(grid_size - 1);
+            grid[gz * grid_size + gx].push(i);
+        }
 
-        for z in 0..heightmap.height {
-            for x in 0..heightmap.width {
-                let nx = x as f32 / w;
-                let nz = z as f32 / h;
+        let w = heightmap.width();
+        let h = heightmap.height();
 
-                // Find the nearest seed (squared distance is sufficient for comparison).
-                let nearest = seeds
-                    .iter()
-                    .enumerate()
-                    .min_by(|(_, a), (_, b)| {
-                        let da = (a.0 - nx).powi(2) + (a.1 - nz).powi(2);
-                        let db = (b.0 - nx).powi(2) + (b.1 - nz).powi(2);
-                        da.partial_cmp(&db).unwrap()
-                    })
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(0);
+        for z in 0..h {
+            for x in 0..w {
+                let nx = x as f32 / w as f32;
+                let nz = z as f32 / h as f32;
+
+                let cx = ((nx / cell_w) as usize).min(grid_size - 1);
+                let cz = ((nz / cell_w) as usize).min(grid_size - 1);
+
+                let mut best_dist = f32::MAX;
+                let mut nearest = 0usize;
+
+                // Expand outward in Chebyshev rings until the minimum possible
+                // distance to the next ring exceeds our best distance so far.
+                // Stopping bound: any point inside the center cell is at least
+                // (r-1)*cell_w from cells at Chebyshev distance r, so
+                // ((r-1)*cell_w)² is a valid lower bound on ring-r distances.
+                for r in 0..=(grid_size as i32) {
+                    let min_ring_dist_sq = if r == 0 {
+                        0.0f32
+                    } else {
+                        let d = (r - 1) as f32 * cell_w;
+                        d * d
+                    };
+
+                    if min_ring_dist_sq > best_dist {
+                        break;
+                    }
+
+                    for dz in -r..=r {
+                        for dx in -r..=r {
+                            // Only visit cells on the border of this ring.
+                            if dx.abs() < r && dz.abs() < r {
+                                continue;
+                            }
+                            let gx = cx as i32 + dx;
+                            let gz = cz as i32 + dz;
+                            if gx < 0 || gz < 0 || gx >= grid_size as i32 || gz >= grid_size as i32
+                            {
+                                continue;
+                            }
+                            for &si in &grid[gz as usize * grid_size + gx as usize] {
+                                let (sx, sz) = seeds[si];
+                                let d = (sx - nx).powi(2) + (sz - nz).powi(2);
+                                if d < best_dist {
+                                    best_dist = d;
+                                    nearest = si;
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Quantise to the nearest terrace level.
                 let raw = seed_heights[nearest];

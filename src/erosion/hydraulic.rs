@@ -22,7 +22,7 @@ pub struct HydraulicErosion {
     pub erosion_rate: f32,
     /// Fraction of carried sediment deposited per step when over capacity.
     pub deposition_rate: f32,
-    /// Fraction of water that evaporates per step.
+    /// Fraction of water that evaporates per step. Must be in `[0.0, 1.0]`.
     pub evaporation_rate: f32,
     /// Scales the sediment capacity of a droplet.
     pub capacity_factor: f32,
@@ -48,8 +48,8 @@ impl HydraulicErosion {
     /// Apply erosion to `heightmap` in-place.
     pub fn erode(&self, heightmap: &mut HeightMap) {
         let mut rng = Pcg64Mcg::seed_from_u64(self.seed);
-        let w = heightmap.width;
-        let h = heightmap.height;
+        let w = heightmap.width();
+        let h = heightmap.height();
 
         for _ in 0..self.num_drops {
             // Spawn droplet at a random position.
@@ -130,8 +130,16 @@ impl HydraulicErosion {
                 let delta_h = height_new - height_here;
 
                 // Sediment capacity proportional to speed, water, and slope.
+                // Clamp to >= 0 so a misconfigured evaporation_rate > 1 cannot
+                // make water negative and invert the capacity formula.
                 let slope = (-delta_h).max(self.min_slope);
-                let capacity = slope * vel * water * self.capacity_factor;
+                let capacity = (slope * vel * water * self.capacity_factor).max(0.0);
+
+                // Bilinear weights for the four surrounding cells at old pos.
+                let w00 = (1.0 - fx) * (1.0 - fz);
+                let w10 = fx * (1.0 - fz);
+                let w01 = (1.0 - fx) * fz;
+                let w11 = fx * fz;
 
                 if sediment > capacity || delta_h > 0.0 {
                     // Deposit sediment.
@@ -143,14 +151,13 @@ impl HydraulicErosion {
                     sediment -= deposit;
 
                     // Spread deposit over the four surrounding cells.
-                    let w00 = (1.0 - fx) * (1.0 - fz);
-                    let w10 = fx * (1.0 - fz);
-                    let w01 = (1.0 - fx) * fz;
-                    let w11 = fx * fz;
-                    *heightmap.data.get_mut(iz * w + ix).unwrap() += deposit * w00;
-                    *heightmap.data.get_mut(iz * w + ix + 1).unwrap() += deposit * w10;
-                    *heightmap.data.get_mut((iz + 1) * w + ix).unwrap() += deposit * w01;
-                    *heightmap.data.get_mut((iz + 1) * w + ix + 1).unwrap() += deposit * w11;
+                    // The bounds check `ix+1 >= w || iz+1 >= h` above ensures
+                    // all four indices are valid; direct indexing is safe.
+                    let data = heightmap.data_mut();
+                    data[iz * w + ix] += deposit * w00;
+                    data[iz * w + ix + 1] += deposit * w10;
+                    data[(iz + 1) * w + ix] += deposit * w01;
+                    data[(iz + 1) * w + ix + 1] += deposit * w11;
                 } else {
                     // Erode from the four surrounding cells.
                     let erode = ((capacity - sediment) * self.erosion_rate)
@@ -158,19 +165,18 @@ impl HydraulicErosion {
                         .max(0.0);
                     sediment += erode;
 
-                    let w00 = (1.0 - fx) * (1.0 - fz);
-                    let w10 = fx * (1.0 - fz);
-                    let w01 = (1.0 - fx) * fz;
-                    let w11 = fx * fz;
-                    *heightmap.data.get_mut(iz * w + ix).unwrap() -= erode * w00;
-                    *heightmap.data.get_mut(iz * w + ix + 1).unwrap() -= erode * w10;
-                    *heightmap.data.get_mut((iz + 1) * w + ix).unwrap() -= erode * w01;
-                    *heightmap.data.get_mut((iz + 1) * w + ix + 1).unwrap() -= erode * w11;
+                    let data = heightmap.data_mut();
+                    data[iz * w + ix] -= erode * w00;
+                    data[iz * w + ix + 1] -= erode * w10;
+                    data[(iz + 1) * w + ix] -= erode * w01;
+                    data[(iz + 1) * w + ix + 1] -= erode * w11;
                 }
 
-                // Update speed and water.
+                // Update speed and water. Clamp water to >= 0 so that a
+                // user-supplied evaporation_rate > 1.0 does not make water
+                // negative and corrupt the capacity calculation.
                 vel = (vel * vel + delta_h * (-9.8)).abs().sqrt();
-                water *= 1.0 - self.evaporation_rate;
+                water = (water * (1.0 - self.evaporation_rate)).max(0.0);
 
                 if water < 0.01 {
                     break;

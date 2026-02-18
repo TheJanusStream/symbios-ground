@@ -89,14 +89,14 @@ impl SplatMapper {
     /// Normals are computed via central differences; the slope is derived as
     /// `1.0 - normal.y` so that 0 = perfectly flat and 1 = vertical.
     pub fn generate(&self, heightmap: &HeightMap) -> WeightMap {
-        let w = heightmap.width;
-        let h = heightmap.height;
+        let w = heightmap.width();
+        let h = heightmap.height();
         let mut wm = WeightMap::new(w, h);
 
         for z in 0..h {
             for x in 0..w {
-                let wx = x as f32 * heightmap.scale;
-                let wz = z as f32 * heightmap.scale;
+                let wx = x as f32 * heightmap.scale();
+                let wz = z as f32 * heightmap.scale();
 
                 let height = heightmap.get(x, z);
                 let normal = heightmap.get_normal_at(wx, wz);

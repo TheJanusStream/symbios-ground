@@ -12,7 +12,7 @@ use crate::{HeightMap, TerrainGenerator};
 #[derive(Debug, Clone)]
 pub struct FbmNoise {
     pub seed: u64,
-    /// Number of noise octaves to stack.
+    /// Number of noise octaves to stack. Capped at 32 to prevent hangs.
     pub octaves: u32,
     /// Amplitude scale per octave (e.g. 0.5 = each octave half as tall).
     pub persistence: f32,
@@ -34,6 +34,10 @@ impl FbmNoise {
     }
 
     pub fn with_octaves(mut self, octaves: u32) -> Self {
+        assert!(
+            (1..=32).contains(&octaves),
+            "octaves must be in [1, 32], got {octaves}"
+        );
         self.octaves = octaves;
         self
     }
@@ -109,6 +113,12 @@ impl ValueNoise {
 
 impl TerrainGenerator for FbmNoise {
     fn generate(&self, heightmap: &mut HeightMap) {
+        assert!(
+            (1..=32).contains(&self.octaves),
+            "octaves must be in [1, 32], got {}",
+            self.octaves
+        );
+
         let noise = ValueNoise::new(self.seed);
 
         let mut max_amp = 0.0_f32;
@@ -118,10 +128,13 @@ impl TerrainGenerator for FbmNoise {
             amp *= self.persistence;
         }
 
-        for z in 0..heightmap.height {
-            for x in 0..heightmap.width {
-                let nx = x as f32 / heightmap.width as f32 * self.base_frequency;
-                let nz = z as f32 / heightmap.height as f32 * self.base_frequency;
+        let w = heightmap.width();
+        let h = heightmap.height();
+
+        for z in 0..h {
+            for x in 0..w {
+                let nx = x as f32 / w as f32 * self.base_frequency;
+                let nz = z as f32 / h as f32 * self.base_frequency;
 
                 let mut height = 0.0_f32;
                 let mut frequency = 1.0_f32;
