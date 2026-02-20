@@ -38,6 +38,22 @@ fn heightmap_bilinear_clamped() {
 }
 
 #[test]
+fn heightmap_normal_at_denormal_scale_does_not_produce_nan() {
+    // With a denormal scale, (hr - hl) / (2 * scale) overflows to ±INF.
+    // The is_finite guard must return a flat [0, 1, 0] normal instead of NaN.
+    let hm = HeightMap::new(4, 4, 1e-40);
+    let n = hm.get_normal_at(0.0, 0.0);
+    for component in n {
+        assert!(
+            component.is_finite(),
+            "normal component is not finite: {component}"
+        );
+    }
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    assert!((len - 1.0).abs() < 1e-5, "normal is not unit length: {len}");
+}
+
+#[test]
 fn heightmap_normal_flat_terrain() {
     // A flat heightmap should return a perfectly up-facing normal.
     let mut hm = HeightMap::new(8, 8, 1.0);
@@ -112,6 +128,17 @@ fn diamond_square_deterministic() {
     DiamondSquare::new(99, 0.5).generate(&mut a);
     DiamondSquare::new(99, 0.5).generate(&mut b);
     assert_eq!(a.data(), b.data());
+}
+
+#[test]
+fn diamond_square_out_of_range_roughness_does_not_panic() {
+    // roughness far above 1.0 overflows amp to f32::INFINITY; the is_finite
+    // guard must prevent the resulting random_range(-INF..INF) panic.
+    let mut hm = HeightMap::new(17, 17, 1.0);
+    DiamondSquare::new(1, 200.0).generate(&mut hm);
+    for &v in hm.data() {
+        assert!(v.is_finite(), "non-finite value in output: {v}");
+    }
 }
 
 #[test]

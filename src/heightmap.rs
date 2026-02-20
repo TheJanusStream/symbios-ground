@@ -132,8 +132,12 @@ impl HeightMap {
         let nx = -dhdx;
         let ny = 1.0_f32;
         let nz = -dhdz;
-        // len >= sqrt(ny²) = 1.0, so division is always safe.
         let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        // If scale is a denormal (< ~1e-38), dhdx/dhdz can overflow to ±INF,
+        // making len = INF and the division NaN. Return a flat up-normal instead.
+        if !len.is_finite() {
+            return [0.0, 1.0, 0.0];
+        }
         [nx / len, ny / len, nz / len]
     }
 
