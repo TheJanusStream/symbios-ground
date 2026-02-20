@@ -23,6 +23,8 @@ pub struct FbmNoise {
 }
 
 impl FbmNoise {
+    /// Create an `FbmNoise` generator with sensible defaults:
+    /// 6 octaves, persistence 0.5, lacunarity 2.0, base frequency 1.0.
     pub fn new(seed: u64) -> Self {
         Self {
             seed,
@@ -33,6 +35,13 @@ impl FbmNoise {
         }
     }
 
+    /// Set the number of noise octaves (must be in `[1, 32]`).
+    ///
+    /// More octaves add finer detail but increase generation time linearly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `octaves` is `0` or greater than `32`.
     pub fn with_octaves(mut self, octaves: u32) -> Self {
         assert!(
             (1..=32).contains(&octaves),
@@ -42,6 +51,10 @@ impl FbmNoise {
         self
     }
 
+    /// Set the amplitude multiplier applied to each successive octave.
+    ///
+    /// `0.5` (the default) halves amplitude each octave; values closer to `1.0`
+    /// give higher-frequency detail equal weight to lower-frequency structure.
     pub fn with_persistence(mut self, persistence: f32) -> Self {
         self.persistence = persistence;
         self

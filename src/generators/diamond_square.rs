@@ -17,6 +17,13 @@ pub struct DiamondSquare {
 }
 
 impl DiamondSquare {
+    /// Create a new `DiamondSquare` generator.
+    ///
+    /// * `seed` — RNG seed for reproducibility.
+    /// * `roughness` — amplitude decay per subdivision step; typical values are
+    ///   `0.4` (smooth) to `0.8` (jagged). Values outside `[0, 1]` are accepted
+    ///   but may produce extreme terrain; very large values clamp safely via the
+    ///   `is_finite` guard inside `generate`.
     pub fn new(seed: u64, roughness: f32) -> Self {
         Self { seed, roughness }
     }

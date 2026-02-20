@@ -12,6 +12,14 @@ pub struct SplatRule {
 }
 
 impl SplatRule {
+    /// Create a `SplatRule`.
+    ///
+    /// * `height_range` — `(min, max)` normalised height `[0, 1]` in which this
+    ///   layer is active.
+    /// * `slope_range` — `(min, max)` slope `[0, 1]` (`0` = flat, `1` = vertical)
+    ///   in which this layer is active.
+    /// * `sharpness` — power applied to the smooth falloff; higher values produce
+    ///   harder, more abrupt transitions between layers.
     pub fn new(height_range: (f32, f32), slope_range: (f32, f32), sharpness: f32) -> Self {
         Self {
             height_range,
@@ -80,6 +88,11 @@ pub struct SplatMapper {
 }
 
 impl SplatMapper {
+    /// Create a `SplatMapper` with custom per-channel rules.
+    ///
+    /// `rules[0]` drives the **R** channel, `[1]` → **G**, `[2]` → **B**,
+    /// `[3]` → **A**. Use [`SplatMapper::default`] for the built-in
+    /// grass / dirt / rock / snow preset.
     pub fn new(rules: [SplatRule; 4]) -> Self {
         Self { rules }
     }

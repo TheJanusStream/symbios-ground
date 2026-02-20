@@ -16,6 +16,13 @@ pub struct HeightMap {
 }
 
 impl HeightMap {
+    /// Create a heightmap of `width × height` cells, all initialised to `0.0`.
+    ///
+    /// `scale` is the world-unit size of each cell (must be `> 0`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `width == 0`, `height == 0`, or `scale <= 0.0`.
     pub fn new(width: usize, height: usize, scale: f32) -> Self {
         assert!(width > 0 && height > 0, "dimensions must be positive");
         assert!(scale > 0.0, "scale must be positive");
@@ -71,21 +78,38 @@ impl HeightMap {
         self.data = vec![0.0; width * height];
     }
 
+    /// Return the height at grid cell `(x, z)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x >= width` or `z >= height`.
     #[inline]
     pub fn get(&self, x: usize, z: usize) -> f32 {
         self.data[z * self.width + x]
     }
 
+    /// Return a mutable reference to the height at grid cell `(x, z)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x >= width` or `z >= height`.
     #[inline]
     pub fn get_mut(&mut self, x: usize, z: usize) -> &mut f32 {
         &mut self.data[z * self.width + x]
     }
 
+    /// Set the height at grid cell `(x, z)` to `val`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x >= width` or `z >= height`.
     #[inline]
     pub fn set(&mut self, x: usize, z: usize, val: f32) {
         self.data[z * self.width + x] = val;
     }
 
+    /// Return the height at grid cell `(x, z)`, clamping coordinates to the
+    /// valid range instead of panicking on out-of-bounds indices.
     #[inline]
     pub fn get_clamped(&self, x: i32, z: i32) -> f32 {
         let cx = x.clamp(0, self.width as i32 - 1) as usize;

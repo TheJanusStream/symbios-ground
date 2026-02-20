@@ -23,6 +23,8 @@ pub struct ThermalErosion {
 }
 
 impl ThermalErosion {
+    /// Create a `ThermalErosion` simulator with sensible defaults:
+    /// 50 iterations, talus angle `0.05`, fraction `0.25`.
     pub fn new() -> Self {
         Self {
             iterations: 50,
@@ -31,11 +33,18 @@ impl ThermalErosion {
         }
     }
 
+    /// Set the number of erosion passes.
+    ///
+    /// More iterations produce smoother slopes at the cost of runtime.
     pub fn with_iterations(mut self, n: u32) -> Self {
         self.iterations = n;
         self
     }
 
+    /// Set the maximum stable height difference between adjacent cells.
+    ///
+    /// Smaller values produce gentler, more smoothed terrain; larger values
+    /// leave steeper cliffs intact.
     pub fn with_talus_angle(mut self, angle: f32) -> Self {
         self.talus_angle = angle;
         self

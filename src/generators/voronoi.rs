@@ -22,6 +22,17 @@ pub struct VoronoiTerracing {
 }
 
 impl VoronoiTerracing {
+    /// Create a new `VoronoiTerracing` generator.
+    ///
+    /// * `seed` — RNG seed for reproducible placement of seed points.
+    /// * `num_seeds` — number of Voronoi seed points; more seeds produce
+    ///   smaller, more fragmented plateaus. Must be `>= 1`.
+    /// * `num_terraces` — number of discrete height levels; `1` gives a flat
+    ///   map, higher values produce finer staircase detail. Must be `>= 1`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `num_seeds == 0` or `num_terraces == 0`.
     pub fn new(seed: u64, num_seeds: usize, num_terraces: usize) -> Self {
         assert!(num_seeds > 0, "num_seeds must be > 0");
         assert!(num_terraces > 0, "num_terraces must be > 0");

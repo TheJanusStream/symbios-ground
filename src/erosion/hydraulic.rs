@@ -31,6 +31,9 @@ pub struct HydraulicErosion {
 }
 
 impl HydraulicErosion {
+    /// Create a `HydraulicErosion` simulator with sensible defaults:
+    /// 50 000 droplets, 64 max steps, inertia 0.05, erosion/deposition rates
+    /// 0.3, evaporation rate 0.02, capacity factor 8.0, min slope 0.01.
     pub fn new(seed: u64) -> Self {
         Self {
             seed,
