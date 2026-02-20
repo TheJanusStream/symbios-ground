@@ -105,7 +105,9 @@ impl HydraulicErosion {
                 let new_px = px + dir_x;
                 let new_pz = pz + dir_z;
 
-                if new_px < 0.0
+                if !new_px.is_finite()
+                    || !new_pz.is_finite()
+                    || new_px < 0.0
                     || new_px >= (w - 1) as f32
                     || new_pz < 0.0
                     || new_pz >= (h - 1) as f32

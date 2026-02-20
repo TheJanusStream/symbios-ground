@@ -87,7 +87,8 @@ impl TerrainGenerator for DiamondSquare {
                             + get!(x, z + step)
                             + get!(x + step, z + step))
                             / 4.0;
-                        set!(x + half, z + half, avg + rng.random_range(-amp..amp));
+                        let offset = if amp > 0.0 { rng.random_range(-amp..amp) } else { 0.0 };
+                        set!(x + half, z + half, avg + offset);
                         x += step;
                     }
                     z += step;
@@ -121,7 +122,8 @@ impl TerrainGenerator for DiamondSquare {
                             sum += get!(x + half, z);
                             count += 1;
                         }
-                        set!(x, z, sum / count as f32 + rng.random_range(-amp..amp));
+                        let offset = if amp > 0.0 { rng.random_range(-amp..amp) } else { 0.0 };
+                        set!(x, z, sum / count as f32 + offset);
                         x += step;
                     }
                     z += half;
