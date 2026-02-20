@@ -114,8 +114,13 @@ impl TerrainGenerator for VoronoiTerracing {
                 }
 
                 // Quantise to the nearest terrace level.
+                // Clamp the floor result to num_terraces-1 so that raw==1.0
+                // doesn't produce a spurious (num_terraces+1)-th level.
                 let raw = seed_heights[nearest];
-                let terraced = (raw * self.num_terraces as f32).floor() / self.num_terraces as f32;
+                let terraced = (raw * self.num_terraces as f32)
+                    .floor()
+                    .min(self.num_terraces as f32 - 1.0)
+                    / self.num_terraces as f32;
 
                 heightmap.set(x, z, terraced);
             }

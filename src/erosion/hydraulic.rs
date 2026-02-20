@@ -175,7 +175,7 @@ impl HydraulicErosion {
                 // Update speed and water. Clamp water to >= 0 so that a
                 // user-supplied evaporation_rate > 1.0 does not make water
                 // negative and corrupt the capacity calculation.
-                vel = (vel * vel + delta_h * (-9.8)).abs().sqrt();
+                vel = (vel * vel + delta_h * (-9.8)).max(0.0).sqrt();
                 water = (water * (1.0 - self.evaporation_rate)).max(0.0);
 
                 if water < 0.01 {

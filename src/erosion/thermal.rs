@@ -12,7 +12,13 @@ pub struct ThermalErosion {
     /// Maximum stable height difference between adjacent cells.
     /// Material above this threshold slides downhill.
     pub talus_angle: f32,
-    /// Fraction of excess material moved per iteration (in `(0.0, 0.5]`).
+    /// Fraction of excess material moved per iteration.
+    ///
+    /// Must be in `(0.0, 0.25]`. With a 4-connected neighbourhood each cell
+    /// can transfer to up to 4 neighbours simultaneously, so values above 0.25
+    /// can remove more material than exists (`4 * fraction * excess > excess`),
+    /// causing the simulation to oscillate and tear the heightmap. Values
+    /// above 0.25 are clamped automatically in [`ThermalErosion::erode`].
     pub fraction: f32,
 }
 
@@ -37,6 +43,10 @@ impl ThermalErosion {
 
     /// Apply thermal erosion to `heightmap` in-place.
     pub fn erode(&self, heightmap: &mut HeightMap) {
+        // A fraction above 0.25 removes more material per step than a cell
+        // holds (4 neighbours × fraction × excess), causing oscillation.
+        let fraction = self.fraction.clamp(f32::EPSILON, 0.25);
+
         let w = heightmap.width();
         let h = heightmap.height();
 
@@ -85,7 +95,7 @@ impl ThermalErosion {
                         if nx < 0 || nx >= w as i32 || nz < 0 || nz >= h as i32 {
                             continue;
                         }
-                        let transfer = self.fraction * excess[i];
+                        let transfer = fraction * excess[i];
                         delta[z * w + x] -= transfer;
                         delta[nz as usize * w + nx as usize] += transfer;
                     }
