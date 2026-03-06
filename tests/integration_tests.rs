@@ -239,6 +239,8 @@ fn thermal_erosion_reduces_extreme_slopes() {
         iterations: 200,
         talus_angle: 0.05,
         fraction: 0.25,
+        water_level: 0.0,
+        underwater_talus_angle: 0.1,
     };
     erosion.erode(&mut hm);
 

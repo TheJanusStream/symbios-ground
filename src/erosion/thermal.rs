@@ -20,6 +20,10 @@ pub struct ThermalErosion {
     /// causing the simulation to oscillate and tear the heightmap. Values
     /// above 0.25 are clamped automatically in [`ThermalErosion::erode`].
     pub fraction: f32,
+    /// Height threshold below which no erosion occurs, simulating a water level.
+    pub water_level: f32,
+    /// Talus angle for underwater regions.
+    pub underwater_talus_angle: f32,
 }
 
 impl ThermalErosion {
@@ -30,6 +34,8 @@ impl ThermalErosion {
             iterations: 50,
             talus_angle: 0.05,
             fraction: 0.25,
+            water_level: 0.0,
+            underwater_talus_angle: 0.1,
         }
     }
 
@@ -47,6 +53,18 @@ impl ThermalErosion {
     /// leave steeper cliffs intact.
     pub fn with_talus_angle(mut self, angle: f32) -> Self {
         self.talus_angle = angle;
+        self
+    }
+
+    /// Same for underwater regions.
+    pub fn with_underwater_talus_angle(mut self, angle: f32) -> Self {
+        self.underwater_talus_angle = angle;
+        self
+    }
+
+    /// Water level setter.
+    pub fn with_water_level(mut self, level: f32) -> Self {
+        self.water_level = level;
         self
     }
 
@@ -84,8 +102,16 @@ impl ThermalErosion {
                         }
                         let h_nb = heightmap.get(nx as usize, nz as usize);
                         let diff = h_here - h_nb;
-                        if diff > self.talus_angle {
-                            excess[i] = diff - self.talus_angle;
+
+                        let current_talus =
+                            if h_here <= self.water_level && h_nb <= self.water_level {
+                                self.underwater_talus_angle
+                            } else {
+                                self.talus_angle
+                            };
+
+                        if diff > current_talus {
+                            excess[i] = diff - current_talus;
                             total_excess += excess[i];
                         }
                     }

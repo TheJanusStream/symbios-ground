@@ -28,6 +28,8 @@ pub struct HydraulicErosion {
     pub capacity_factor: f32,
     /// Minimum slope used for capacity calculation (avoids division by zero).
     pub min_slope: f32,
+    /// Height threshold below which droplets will deposit sediment instead of eroding.
+    pub water_level: f32,
 }
 
 impl HydraulicErosion {
@@ -45,6 +47,7 @@ impl HydraulicErosion {
             evaporation_rate: 0.02,
             capacity_factor: 8.0,
             min_slope: 0.01,
+            water_level: 0.0,
         }
     }
 
@@ -137,8 +140,12 @@ impl HydraulicErosion {
                 // Sediment capacity proportional to speed, water, and slope.
                 // Clamp to >= 0 so a misconfigured evaporation_rate > 1 cannot
                 // make water negative and invert the capacity formula.
-                let slope = (-delta_h).max(self.min_slope);
-                let capacity = (slope * vel * water * self.capacity_factor).max(0.0);
+                let capacity = if height_here <= self.water_level {
+                    0.0 // Force deposition (River Delta effect)
+                } else {
+                    let slope = (-delta_h).max(self.min_slope);
+                    (slope * vel * water * self.capacity_factor).max(0.0)
+                };
 
                 // Bilinear weights for the four surrounding cells at old pos.
                 let w00 = (1.0 - fx) * (1.0 - fz);
