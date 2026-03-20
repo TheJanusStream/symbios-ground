@@ -23,7 +23,7 @@ weight (splat) mapping.
 ```toml
 # Cargo.toml
 [dependencies]
-symbios-ground = "0.1"
+symbios-ground = "0.2"
 ```
 
 ```rust
@@ -63,9 +63,11 @@ The central data structure. Stores a flat row-major `Vec<f32>` buffer of
 `width × height` cells. `scale` is the world-unit size of each cell.
 
 | Method | Description |
-|--------|-------------|
+| ------ | ----------- |
 | `new(w, h, scale)` | Allocate zeroed heightmap |
+| `width()` / `height()` / `scale()` | Grid dimensions and world-units-per-cell |
 | `get(x, z)` / `set(x, z, v)` | Grid-cell access |
+| `get_mut(x, z)` | Mutable reference to a grid cell |
 | `get_clamped(x, z)` | Grid access with edge clamping |
 | `get_height_at(wx, wz)` | Bilinear world-space height sample |
 | `get_normal_at(wx, wz)` | Central-difference surface normal |
@@ -99,8 +101,12 @@ Multi-octave value noise with quintic smoothstep interpolation. Builder API:
 
 ```rust
 FbmNoise::new(seed)
-    .with_octaves(8)        // 1–32; more = finer detail
-    .with_persistence(0.5)  // amplitude decay per octave
+    .with_octaves(8)        // 1–32; default 6; more = finer detail
+    .with_persistence(0.5)  // amplitude decay per octave (default)
+
+// Additional public fields for advanced tuning:
+// fbm.lacunarity     — frequency multiplier per octave (default 2.0)
+// fbm.base_frequency — world-space frequency of the first octave (default 1.0)
 ```
 
 #### `VoronoiTerracing`
@@ -126,7 +132,12 @@ to downhill neighbours.
 ThermalErosion::new()
     .with_iterations(50)
     .with_talus_angle(0.05)
+    .with_water_level(0.2)            // heights ≤ this use underwater rules
+    .with_underwater_talus_angle(0.1) // gentler smoothing below water
     .erode(&mut hm);
+
+// The `fraction` field (default 0.25) controls how much excess material
+// is transferred per iteration. Clamped to (0.0, 0.25] internally.
 ```
 
 #### `HydraulicErosion`
@@ -141,6 +152,7 @@ HydraulicErosion::new(seed).erode(&mut hm);
 let mut eroder = HydraulicErosion::new(seed);
 eroder.num_drops = 100_000;
 eroder.erosion_rate = 0.4;
+eroder.water_level = 0.2; // heights ≤ this force deposition (river deltas)
 eroder.erode(&mut hm);
 ```
 
@@ -150,7 +162,7 @@ Produces a 4-channel RGBA weight map for GPU terrain shaders. Each pixel's
 channels sum to ~255.
 
 | Channel | Default layer | Conditions |
-|---------|--------------|------------|
+| ------- | ------------- | ----------- |
 | R | Grass | Low altitude, gentle slope |
 | G | Dirt | Mid altitude, any slope |
 | B | Rock | Steep slopes |

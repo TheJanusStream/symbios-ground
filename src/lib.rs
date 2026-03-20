@@ -29,7 +29,7 @@
 //! ## Quick start
 //!
 //! ```rust
-//! use symbios_ground::{DiamondSquare, FbmNoise, HeightMap, HydraulicErosion,
+//! use symbios_ground::{DiamondSquare, HeightMap, HydraulicErosion,
 //!                      SplatMapper, TerrainGenerator, ThermalErosion};
 //!
 //! // 1. Create a 129×129 heightmap with 1 world-unit per cell.
