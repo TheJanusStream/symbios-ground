@@ -132,8 +132,8 @@ impl SplatMapper {
                         (weights[3] / total * 255.0).round() as u8,
                     ]
                 } else {
-                    // No rule matches — fall through to channel R.
-                    [255, 0, 0, 0]
+                    // No rule matches — fall through to channel B.
+                    [0, 0, 255, 0]
                 };
 
                 wm.data[z * w + x] = pixel;
