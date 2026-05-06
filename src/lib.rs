@@ -15,7 +15,7 @@
 //!
 //! | Type | Algorithm |
 //! |------|-----------|
-//! | [`DiamondSquare`] | Classic fractal Diamond-Square; resizes the map to `2^n + 1` |
+//! | [`DiamondSquare`] | Classic fractal Diamond-Square; preserves caller dimensions via bilinear downsample |
 //! | [`FbmNoise`] | Fractional Brownian Motion (multi-octave value noise) |
 //! | [`VoronoiTerracing`] | Voronoi-based stepped plateaus |
 //!
@@ -56,9 +56,11 @@ pub mod generator;
 pub mod generators;
 pub mod heightmap;
 pub mod splat;
+pub mod tile;
 
 pub use erosion::{HydraulicErosion, ThermalErosion};
 pub use generator::TerrainGenerator;
 pub use generators::{DiamondSquare, FbmNoise, VoronoiTerracing};
-pub use heightmap::HeightMap;
-pub use splat::{SplatMapper, SplatRule, WeightMap};
+pub use heightmap::{HeightMap, Lake};
+pub use splat::{SplatMapper, SplatRule, WeightMap, sample_biome_at, sample_splat_weights_at};
+pub use tile::{HeightMapTile, TiledHeightMap, derive_tile_seed};

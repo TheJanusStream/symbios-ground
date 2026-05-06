@@ -23,7 +23,7 @@ weight (splat) mapping.
 ```toml
 # Cargo.toml
 [dependencies]
-symbios-ground = "0.2"
+symbios-ground = "0.3"
 ```
 
 ```rust
@@ -87,13 +87,23 @@ pub trait TerrainGenerator {
 
 #### `DiamondSquare`
 
-Classic fractal subdivision. Resizes the heightmap to the smallest `2^n + 1`
-that covers its current dimensions (e.g. a 100×100 map becomes 129×129).
+Classic fractal subdivision. Generates internally at the smallest `2^n + 1`
+square that covers the heightmap, then bilinearly downsamples to the
+user-requested dimensions. Heightmaps of any size — square or rectangular,
+power-of-two or not — are preserved as the caller allocated them.
 
 ```rust
 DiamondSquare::new(seed, roughness)
 // roughness: 0.4 = smooth, 0.8 = jagged
 ```
+
+##### Generator dimension constraints
+
+| Generator | Accepted dimensions |
+| --------- | ------------------- |
+| `DiamondSquare` | Any `width × height ≥ 1×1`; internally rounds up to `2^n + 1` and downsamples |
+| `FbmNoise` | Any `width × height ≥ 1×1` |
+| `VoronoiTerracing` | Any `width × height ≥ 1×1` |
 
 #### `FbmNoise`
 
@@ -183,6 +193,34 @@ let mapper = SplatMapper::new([
 let wm = mapper.generate(&hm);
 
 // wm.data: Vec<[u8; 4]>, row-major, wm.width × wm.height pixels
+```
+
+### `TiledHeightMap` (LOD / streaming)
+
+Sparse, infinite-world heightmap composed of fixed-size tiles. Tiles are
+generated on demand from a base seed plus their `(x, z)` coordinates,
+keeping memory proportional to the number of *visited* tiles rather than the
+size of the world. See [`examples/streaming_tiles.rs`](examples/streaming_tiles.rs)
+for a viewer-driven streaming demo.
+
+```rust
+use symbios_ground::{FbmNoise, TiledHeightMap};
+
+let mut world = TiledHeightMap::new(256, 1.0, 1234, |seed| Box::new(FbmNoise::new(seed)));
+world.ensure_radius((0, 0), 1);            // pre-load a 3×3 region around origin
+let h = world.sample_height_at(120.0, 4.0); // generate underlying tile if absent
+world.evict_outside((0, 0), 2);            // drop tiles outside Chebyshev radius 2
+```
+
+Per-tile generators are independent, so adjacent tiles will generally have
+visible seams. Callers needing seamless terrain across boundaries should
+write a generator that samples noise at world-space coordinates rather than
+tile-local coordinates.
+
+## Running the example
+
+```sh
+cargo run --example streaming_tiles
 ```
 
 ## Running benchmarks

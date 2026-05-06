@@ -3,11 +3,23 @@ use rand::SeedableRng;
 use rand_pcg::Pcg64Mcg;
 
 use crate::HeightMap;
+use crate::heightmap::Lake;
 
 /// Droplet-based hydraulic erosion simulation.
 ///
 /// Simulates individual water droplets flowing downhill, picking up and
 /// depositing sediment to carve realistic river valleys and ridges.
+///
+/// Droplets that stall (velocity drops below [`Self::vel_threshold`]) are
+/// resolved as one of:
+/// * **Lake pooling** — when stalling above `water_level`, the droplet's
+///   remaining water is added to the local cell, accumulating into a basin.
+///   The resulting [`Lake`]s are written to the heightmap via
+///   [`HeightMap::lakes`](crate::HeightMap::lakes).
+/// * **Delta fan deposition** — when stalling at or below `water_level`, the
+///   droplet's remaining sediment is spread across a `delta_radius` square
+///   neighbourhood with a Gaussian-like falloff, simulating the splay of a
+///   river delta.
 #[derive(Debug, Clone)]
 pub struct HydraulicErosion {
     pub seed: u64,
@@ -30,12 +42,19 @@ pub struct HydraulicErosion {
     pub min_slope: f32,
     /// Height threshold below which droplets will deposit sediment instead of eroding.
     pub water_level: f32,
+    /// Velocity below which a droplet is considered stalled. Stalled droplets
+    /// pool into lakes (above water level) or deposit deltas (at/below water).
+    pub vel_threshold: f32,
+    /// Half-width (in cells) of the delta fan kernel applied to droplets that
+    /// stall at or below `water_level`. `1` produces a 3×3 fan, `2` a 5×5, etc.
+    pub delta_radius: u32,
 }
 
 impl HydraulicErosion {
     /// Create a `HydraulicErosion` simulator with sensible defaults:
     /// 50 000 droplets, 64 max steps, inertia 0.05, erosion/deposition rates
-    /// 0.3, evaporation rate 0.02, capacity factor 8.0, min slope 0.01.
+    /// 0.3, evaporation rate 0.02, capacity factor 8.0, min slope 0.01,
+    /// vel threshold 0.05, delta radius 1.
     pub fn new(seed: u64) -> Self {
         Self {
             seed,
@@ -48,14 +67,22 @@ impl HydraulicErosion {
             capacity_factor: 8.0,
             min_slope: 0.01,
             water_level: 0.0,
+            vel_threshold: 0.05,
+            delta_radius: 1,
         }
     }
 
-    /// Apply erosion to `heightmap` in-place.
+    /// Apply erosion to `heightmap` in-place. Populates
+    /// [`HeightMap::lakes`](crate::HeightMap::lakes) with any pooled basins
+    /// detected during the simulation.
     pub fn erode(&self, heightmap: &mut HeightMap) {
         let mut rng = Pcg64Mcg::seed_from_u64(self.seed);
         let w = heightmap.width();
         let h = heightmap.height();
+
+        // Per-cell water depth accumulator. Built up by stalled droplets above
+        // water_level; converted to a Vec<Lake> at the end of the run.
+        let mut lake_depth = vec![0.0_f32; w * h];
 
         for _ in 0..self.num_drops {
             // Spawn droplet at a random position.
@@ -102,6 +129,20 @@ impl HydraulicErosion {
                 // Normalise direction.
                 let len = (dir_x * dir_x + dir_z * dir_z).sqrt();
                 if len < f32::EPSILON {
+                    // No gradient — droplet stalled. Resolve as lake or delta.
+                    self.resolve_stall(
+                        ix,
+                        iz,
+                        fx,
+                        fz,
+                        height_here,
+                        water,
+                        sediment,
+                        w,
+                        h,
+                        heightmap,
+                        &mut lake_depth,
+                    );
                     break;
                 }
                 dir_x /= len;
@@ -141,7 +182,7 @@ impl HydraulicErosion {
                 // Clamp to >= 0 so a misconfigured evaporation_rate > 1 cannot
                 // make water negative and invert the capacity formula.
                 let capacity = if height_here <= self.water_level {
-                    0.0 // Force deposition (River Delta effect)
+                    0.0 // Force deposition (river-mouth effect)
                 } else {
                     let slope = (-delta_h).max(self.min_slope);
                     (slope * vel * water * self.capacity_factor).max(0.0)
@@ -163,8 +204,6 @@ impl HydraulicErosion {
                     sediment -= deposit;
 
                     // Spread deposit over the four surrounding cells.
-                    // The bounds check `ix+1 >= w || iz+1 >= h` above ensures
-                    // all four indices are valid; direct indexing is safe.
                     let data = heightmap.data_mut();
                     data[iz * w + ix] += deposit * w00;
                     data[iz * w + ix + 1] += deposit * w10;
@@ -190,12 +229,124 @@ impl HydraulicErosion {
                 vel = (vel * vel + delta_h * (-9.8)).max(0.0).sqrt();
                 water = (water * (1.0 - self.evaporation_rate)).max(0.0);
 
-                if water < 0.01 {
+                if water < 0.01 || vel < self.vel_threshold {
+                    self.resolve_stall(
+                        ix,
+                        iz,
+                        fx,
+                        fz,
+                        height_here,
+                        water,
+                        sediment,
+                        w,
+                        h,
+                        heightmap,
+                        &mut lake_depth,
+                    );
                     break;
                 }
 
                 px = new_px;
                 pz = new_pz;
+            }
+        }
+
+        // Convert non-zero lake-depth cells into a sparse lake list.
+        let cell_area = heightmap.scale() * heightmap.scale();
+        let mut lakes: Vec<Lake> = Vec::new();
+        for (i, &depth) in lake_depth.iter().enumerate() {
+            if depth > f32::EPSILON {
+                lakes.push(Lake {
+                    index: i,
+                    depth,
+                    area: cell_area,
+                });
+            }
+        }
+        heightmap.set_lakes(lakes);
+    }
+
+    /// Handle a stalled droplet: pool the remaining water into a lake (above
+    /// water level) or splay the remaining sediment as a delta fan
+    /// (at/below water level).
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_stall(
+        &self,
+        ix: usize,
+        iz: usize,
+        fx: f32,
+        fz: f32,
+        height_here: f32,
+        water: f32,
+        sediment: f32,
+        w: usize,
+        h: usize,
+        heightmap: &mut HeightMap,
+        lake_depth: &mut [f32],
+    ) {
+        if water <= 0.0 && sediment <= 0.0 {
+            return;
+        }
+
+        if height_here > self.water_level {
+            // Lake formation: distribute remaining water across the four
+            // surrounding cells with bilinear weights so partial-cell stalls
+            // don't snap to a quantised position.
+            let w00 = (1.0 - fx) * (1.0 - fz);
+            let w10 = fx * (1.0 - fz);
+            let w01 = (1.0 - fx) * fz;
+            let w11 = fx * fz;
+            lake_depth[iz * w + ix] += water * w00;
+            lake_depth[iz * w + ix + 1] += water * w10;
+            lake_depth[(iz + 1) * w + ix] += water * w01;
+            lake_depth[(iz + 1) * w + ix + 1] += water * w11;
+            // Remaining sediment also drops here.
+            if sediment > 0.0 {
+                let data = heightmap.data_mut();
+                data[iz * w + ix] += sediment * w00;
+                data[iz * w + ix + 1] += sediment * w10;
+                data[(iz + 1) * w + ix] += sediment * w01;
+                data[(iz + 1) * w + ix + 1] += sediment * w11;
+            }
+        } else if sediment > 0.0 {
+            // Delta fan: splay sediment over a (2r+1)x(2r+1) kernel with a
+            // simple distance-weighted falloff. Falloff weights sum to 1 so
+            // total mass is preserved.
+            let r = self.delta_radius as i32;
+            let cx = ix as i32 + fx.round() as i32;
+            let cz = iz as i32 + fz.round() as i32;
+
+            // First pass: compute weights and total.
+            let mut total_weight = 0.0_f32;
+            for dz in -r..=r {
+                for dx in -r..=r {
+                    let nx = cx + dx;
+                    let nz = cz + dz;
+                    if nx < 0 || nx >= w as i32 || nz < 0 || nz >= h as i32 {
+                        continue;
+                    }
+                    let dist_sq = (dx * dx + dz * dz) as f32;
+                    let weight = (-dist_sq / ((r as f32).max(1.0))).exp();
+                    total_weight += weight;
+                }
+            }
+            if total_weight <= 0.0 {
+                return;
+            }
+
+            // Second pass: deposit.
+            let data = heightmap.data_mut();
+            for dz in -r..=r {
+                for dx in -r..=r {
+                    let nx = cx + dx;
+                    let nz = cz + dz;
+                    if nx < 0 || nx >= w as i32 || nz < 0 || nz >= h as i32 {
+                        continue;
+                    }
+                    let dist_sq = (dx * dx + dz * dz) as f32;
+                    let weight = (-dist_sq / ((r as f32).max(1.0))).exp() / total_weight;
+                    data[nz as usize * w + nx as usize] += sediment * weight;
+                }
             }
         }
     }

@@ -29,7 +29,7 @@ impl SplatRule {
     }
 
     /// Compute the raw (unnormalised) weight for a given height and slope.
-    fn weight(&self, height: f32, slope: f32) -> f32 {
+    pub fn weight(&self, height: f32, slope: f32) -> f32 {
         let h_w = smooth_range(
             height,
             self.height_range.0,
@@ -106,13 +106,12 @@ impl SplatMapper {
         let h = heightmap.height();
         let mut wm = WeightMap::new(w, h);
 
+        let normals = heightmap.normals_grid();
+
         for z in 0..h {
             for x in 0..w {
-                let wx = x as f32 * heightmap.scale();
-                let wz = z as f32 * heightmap.scale();
-
                 let height = heightmap.get(x, z);
-                let normal = heightmap.get_normal_at(wx, wz);
+                let normal = normals[z * w + x];
                 // normal.y (index 1) = cos of angle from vertical; 1-y gives slope in [0,1].
                 let slope = 1.0 - normal[1];
 
@@ -142,6 +141,76 @@ impl SplatMapper {
 
         wm
     }
+
+    /// Compute the four normalised splat weights at world position
+    /// `(world_x, world_z)`. Output sums to `1.0` in well-defined cases, or
+    /// returns the rock-channel fallback `[0, 0, 1, 0]` when no rule matches —
+    /// matching the behaviour of [`SplatMapper::generate`] before u8
+    /// quantisation.
+    pub fn sample_weights_at(&self, heightmap: &HeightMap, world_x: f32, world_z: f32) -> [f32; 4] {
+        let height = heightmap.get_height_at(world_x, world_z);
+        let normal = heightmap.get_normal_at(world_x, world_z);
+        let slope = 1.0 - normal[1];
+
+        let raw = [
+            self.rules[0].weight(height, slope),
+            self.rules[1].weight(height, slope),
+            self.rules[2].weight(height, slope),
+            self.rules[3].weight(height, slope),
+        ];
+        let total: f32 = raw.iter().sum();
+        if total > f32::EPSILON {
+            [
+                raw[0] / total,
+                raw[1] / total,
+                raw[2] / total,
+                raw[3] / total,
+            ]
+        } else {
+            // Mirrors the [0, 0, 255, 0] fallback in generate(): no rule
+            // applies, so the rock channel absorbs the whole weight.
+            [0.0, 0.0, 1.0, 0.0]
+        }
+    }
+
+    /// Return the dominant biome channel (0..=3 = R/G/B/A) at world position
+    /// `(world_x, world_z)`. Ties are broken by lowest channel index.
+    pub fn sample_biome_at(&self, heightmap: &HeightMap, world_x: f32, world_z: f32) -> u8 {
+        argmax_channel(&self.sample_weights_at(heightmap, world_x, world_z))
+    }
+}
+
+/// Free-function form of [`SplatMapper::sample_weights_at`] for callers that
+/// already have an `&SplatMapper` and prefer not to write a method call chain.
+pub fn sample_splat_weights_at(
+    heightmap: &HeightMap,
+    mapper: &SplatMapper,
+    world_x: f32,
+    world_z: f32,
+) -> [f32; 4] {
+    mapper.sample_weights_at(heightmap, world_x, world_z)
+}
+
+/// Free-function form of [`SplatMapper::sample_biome_at`].
+pub fn sample_biome_at(
+    heightmap: &HeightMap,
+    mapper: &SplatMapper,
+    world_x: f32,
+    world_z: f32,
+) -> u8 {
+    mapper.sample_biome_at(heightmap, world_x, world_z)
+}
+
+fn argmax_channel(weights: &[f32; 4]) -> u8 {
+    let mut best_idx = 0u8;
+    let mut best_val = weights[0];
+    for (i, &w) in weights.iter().enumerate().skip(1) {
+        if w > best_val {
+            best_val = w;
+            best_idx = i as u8;
+        }
+    }
+    best_idx
 }
 
 impl Default for SplatMapper {

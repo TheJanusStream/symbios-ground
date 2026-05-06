@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 /// A 2D heightmap stored as a flat row-major `Vec<f32>` buffer.
@@ -7,12 +9,54 @@ use serde::{Deserialize, Serialize};
 ///
 /// The invariant `data.len() == width * height` is enforced by all constructors
 /// and mutation methods; fields are private to prevent external corruption.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// A grid-cell normal cache is computed lazily on first read and reused across
+/// repeated queries (e.g. by [`SplatMapper`](crate::SplatMapper)). It is
+/// invalidated whenever the heights change via [`HeightMap::set`],
+/// [`HeightMap::get_mut`], [`HeightMap::data_mut`], or [`HeightMap::normalize`].
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HeightMap {
     data: Vec<f32>,
     width: usize,
     height: usize,
     scale: f32,
+    /// Pooled lakes detected by hydraulic erosion. Empty until erosion writes
+    /// to it; persisted across serialisation so renderers can visualise water
+    /// without re-running the simulation.
+    #[serde(default)]
+    lakes: Vec<Lake>,
+    /// Lazy per-grid-cell central-difference normals. Skipped from serde so the
+    /// cache stays consistent with the height data after deserialisation.
+    #[serde(skip)]
+    normals: OnceLock<Vec<[f32; 3]>>,
+}
+
+/// A pooled body of standing water produced by [`HydraulicErosion`](crate::HydraulicErosion).
+///
+/// Built up at points where droplet velocity drops below the configured
+/// threshold while still above `water_level`, marking realistic basins and
+/// depressions in the heightmap.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Lake {
+    /// Row-major index into the heightmap (`z * width + x`).
+    pub index: usize,
+    /// Accumulated water depth at this cell.
+    pub depth: f32,
+    /// World-space area attributed to this lake cell — `scale * scale`.
+    pub area: f32,
+}
+
+impl Clone for HeightMap {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            width: self.width,
+            height: self.height,
+            scale: self.scale,
+            lakes: self.lakes.clone(),
+            normals: OnceLock::new(),
+        }
+    }
 }
 
 impl HeightMap {
@@ -31,6 +75,8 @@ impl HeightMap {
             width,
             height,
             scale,
+            lakes: Vec::new(),
+            normals: OnceLock::new(),
         }
     }
 
@@ -61,21 +107,12 @@ impl HeightMap {
     /// Mutable view of the flat row-major height buffer.
     ///
     /// The caller must not change the slice length; only element values may be
-    /// modified.  Dimensions (`width`, `height`) are unaffected.
+    /// modified.  Dimensions (`width`, `height`) are unaffected. Invalidates
+    /// the normal cache.
     #[inline]
     pub fn data_mut(&mut self) -> &mut [f32] {
+        self.invalidate_caches();
         &mut self.data
-    }
-
-    /// Resize the heightmap and zero all values.
-    ///
-    /// Used internally by generators (e.g. `DiamondSquare`) that need to
-    /// resize the map to fit their algorithm's requirements.
-    pub(crate) fn reinitialize(&mut self, width: usize, height: usize) {
-        assert!(width > 0 && height > 0, "dimensions must be positive");
-        self.width = width;
-        self.height = height;
-        self.data = vec![0.0; width * height];
     }
 
     /// Return the height at grid cell `(x, z)`.
@@ -89,22 +126,26 @@ impl HeightMap {
     }
 
     /// Return a mutable reference to the height at grid cell `(x, z)`.
+    /// Invalidates the normal cache.
     ///
     /// # Panics
     ///
     /// Panics if `x >= width` or `z >= height`.
     #[inline]
     pub fn get_mut(&mut self, x: usize, z: usize) -> &mut f32 {
+        self.invalidate_caches();
         &mut self.data[z * self.width + x]
     }
 
-    /// Set the height at grid cell `(x, z)` to `val`.
+    /// Set the height at grid cell `(x, z)` to `val`. Invalidates the normal
+    /// cache.
     ///
     /// # Panics
     ///
     /// Panics if `x >= width` or `z >= height`.
     #[inline]
     pub fn set(&mut self, x: usize, z: usize, val: f32) {
+        self.invalidate_caches();
         self.data[z * self.width + x] = val;
     }
 
@@ -165,6 +206,73 @@ impl HeightMap {
         [nx / len, ny / len, nz / len]
     }
 
+    /// Cached central-difference normal at grid cell `(x, z)`.
+    ///
+    /// Equivalent to `get_normal_at(x as f32 * scale, z as f32 * scale)` for
+    /// in-bounds cells, but reads from a lazily populated cache so callers that
+    /// scan the whole grid (e.g. [`SplatMapper`](crate::SplatMapper)) avoid
+    /// recomputing four central differences per pixel.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x >= width` or `z >= height`.
+    pub fn normal_at_grid(&self, x: usize, z: usize) -> [f32; 3] {
+        self.normals_grid()[z * self.width + x]
+    }
+
+    /// Lazily populated per-grid-cell normal table; row-major, length
+    /// `width * height`.
+    pub fn normals_grid(&self) -> &[[f32; 3]] {
+        self.normals.get_or_init(|| self.compute_normals())
+    }
+
+    fn compute_normals(&self) -> Vec<[f32; 3]> {
+        let w = self.width;
+        let h = self.height;
+        let mut out = Vec::with_capacity(w * h);
+        let step = self.scale;
+        let inv_2step = 1.0_f32 / (2.0 * step);
+        for z in 0..h {
+            for x in 0..w {
+                let hl = self.get_clamped(x as i32 - 1, z as i32);
+                let hr = self.get_clamped(x as i32 + 1, z as i32);
+                let hd = self.get_clamped(x as i32, z as i32 - 1);
+                let hu = self.get_clamped(x as i32, z as i32 + 1);
+
+                let dhdx = (hr - hl) * inv_2step;
+                let dhdz = (hu - hd) * inv_2step;
+
+                let nx = -dhdx;
+                let ny = 1.0_f32;
+                let nz = -dhdz;
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                if !len.is_finite() {
+                    out.push([0.0, 1.0, 0.0]);
+                } else {
+                    out.push([nx / len, ny / len, nz / len]);
+                }
+            }
+        }
+        out
+    }
+
+    /// Lakes detected by the most recent hydraulic erosion pass. Empty until
+    /// [`HydraulicErosion::erode`](crate::HydraulicErosion::erode) populates
+    /// it.
+    pub fn lakes(&self) -> &[Lake] {
+        &self.lakes
+    }
+
+    /// Internal: replace the lake list (used by erosion).
+    pub(crate) fn set_lakes(&mut self, lakes: Vec<Lake>) {
+        self.lakes = lakes;
+    }
+
+    /// Internal: clear all derived caches that depend on `data`.
+    fn invalidate_caches(&mut self) {
+        self.normals.take();
+    }
+
     /// Normalize all height values to `[0.0, 1.0]`.
     pub fn normalize(&mut self) {
         let min = self.data.iter().cloned().fold(f32::INFINITY, f32::min);
@@ -175,6 +283,7 @@ impl HeightMap {
                 *v = (*v - min) / range;
             }
         }
+        self.invalidate_caches();
     }
 
     /// World-space width of the heightmap.
