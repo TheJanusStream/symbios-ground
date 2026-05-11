@@ -8,6 +8,7 @@
 //! | Type | Description |
 //! |------|-------------|
 //! | [`HeightMap`] | 2-D grid of `f32` heights with world-space sampling helpers |
+//! | [`Lake`] | Pooled water body detected during hydraulic erosion |
 //! | [`TerrainGenerator`] | Trait implemented by all generators |
 //! | [`SplatMapper`] / [`WeightMap`] | 4-channel RGBA texture-weight map from height + slope |
 //!
@@ -23,8 +24,23 @@
 //!
 //! | Type | Description |
 //! |------|-------------|
-//! | [`HydraulicErosion`] | Droplet-based particle erosion |
-//! | [`ThermalErosion`] | Talus/slope-smoothing erosion |
+//! | [`HydraulicErosion`] | Droplet-based particle erosion (carves valleys, pools lakes, splays river deltas) |
+//! | [`ThermalErosion`] | Talus/slope-smoothing erosion (with optional underwater rules) |
+//!
+//! ## Streaming / LOD
+//!
+//! | Type | Description |
+//! |------|-------------|
+//! | [`TiledHeightMap`] | Sparse, infinite-world heightmap generated tile-by-tile on demand |
+//! | [`HeightMapTile`] | One generated tile owned by a [`TiledHeightMap`] |
+//! | [`derive_tile_seed`] | Mixes a base seed with tile coordinates into a per-tile seed |
+//!
+//! ## World-space splat queries
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`SplatMapper::sample_weights_at`] / [`sample_splat_weights_at`] | Normalised `[f32; 4]` splat weights at a world position |
+//! | [`SplatMapper::sample_biome_at`] / [`sample_biome_at`] | Dominant RGBA channel index (`0..=3`) at a world position |
 //!
 //! ## Quick start
 //!
