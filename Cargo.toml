@@ -1,6 +1,6 @@
 [package]
 name = "symbios-ground"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 authors = ["Janus"]
 description = "An algorithmic terrain engine."
@@ -11,6 +11,12 @@ keywords = ["terrain", "procedural", "generative", "simulation"]
 categories = ["simulation", "game-development", "mathematics"]
 
 [dependencies]
+# Pure-Rust libm (#22): the transcendentals in the derivation path must give
+# the same bits on every target. `f32::exp`/`powf` link the platform's libm —
+# glibc on x86-64, compiler-builtins on wasm32 — and Rust documents their
+# results as platform-dependent, so a native peer and a browser peer derive
+# measurably different terrain from the same seed.
+libm = "0.2"
 rand = "0.9"
 rand_pcg = "0.9"
 serde = { version = "1.0", features = ["derive", "rc"] }

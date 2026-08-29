@@ -326,7 +326,12 @@ impl HydraulicErosion {
                         continue;
                     }
                     let dist_sq = (dx * dx + dz * dz) as f32;
-                    let weight = (-dist_sq / ((r as f32).max(1.0))).exp();
+                    // `libm::expf`, not `f32::exp`: see the crate docs on
+                    // cross-target determinism. Every height downstream of a
+                    // deposition carries this weight, so a one-ULP difference
+                    // here propagates into the slope that a consumer's
+                    // vegetation scatter accepts or rejects.
+                    let weight = libm::expf(-dist_sq / ((r as f32).max(1.0)));
                     total_weight += weight;
                 }
             }
@@ -344,7 +349,7 @@ impl HydraulicErosion {
                         continue;
                     }
                     let dist_sq = (dx * dx + dz * dz) as f32;
-                    let weight = (-dist_sq / ((r as f32).max(1.0))).exp() / total_weight;
+                    let weight = libm::expf(-dist_sq / ((r as f32).max(1.0))) / total_weight;
                     data[nz as usize * w + nx as usize] += sediment * weight;
                 }
             }

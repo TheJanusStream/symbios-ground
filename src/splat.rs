@@ -246,5 +246,11 @@ fn smooth_range(value: f32, lo: f32, hi: f32, sharpness: f32) -> f32 {
     let mid = (lo + hi) * 0.5;
     let half = (hi - lo) * 0.5;
     let dist = (value - mid).abs();
-    (1.0 - (dist / half).min(1.0)).powf(sharpness)
+    // `libm::powf` — see the crate docs on cross-target determinism. This is
+    // the sharpest-consequence site in the crate: the four rule weights are
+    // COMPARED against each other to pick a dominant channel, so a one-ULP
+    // difference between two builds is not a slightly different number, it is
+    // a different material on that texel and a different biome for anything a
+    // consumer scatters there.
+    libm::powf(1.0 - (dist / half).min(1.0), sharpness)
 }

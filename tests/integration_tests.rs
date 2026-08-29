@@ -109,7 +109,7 @@ fn diamond_square_output_in_unit_range() {
     let mut hm = HeightMap::new(65, 65, 1.0);
     DiamondSquare::new(42, 0.7).generate(&mut hm);
     for &v in hm.data() {
-        assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
+        assert!((0.0..=1.0).contains(&v), "value out of range: {v}");
     }
 }
 
@@ -174,7 +174,7 @@ fn fbm_output_in_unit_range() {
     let mut hm = HeightMap::new(64, 64, 1.0);
     FbmNoise::new(123).generate(&mut hm);
     for &v in hm.data() {
-        assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
+        assert!((0.0..=1.0).contains(&v), "value out of range: {v}");
     }
 }
 
@@ -196,7 +196,7 @@ fn voronoi_output_in_unit_range() {
     let mut hm = HeightMap::new(64, 64, 1.0);
     VoronoiTerracing::new(5, 20, 5).generate(&mut hm);
     for &v in hm.data() {
-        assert!(v >= 0.0 && v <= 1.0, "value out of range: {v}");
+        assert!((0.0..=1.0).contains(&v), "value out of range: {v}");
     }
 }
 
@@ -348,7 +348,7 @@ fn splat_mapper_weights_sum_to_255() {
         let total: u16 = px.iter().map(|&b| b as u16).sum();
         // Rounding means the sum can be 253–257; verify it is close to 255.
         assert!(
-            total >= 250 && total <= 260,
+            (250..=260).contains(&total),
             "channel sum out of range: {total}"
         );
     }

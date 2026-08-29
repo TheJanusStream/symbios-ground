@@ -138,7 +138,10 @@ impl DiamondSquare {
             }
 
             step = half;
-            amp *= 0.5_f32.powf(1.0 - self.roughness + 0.5);
+            // `libm::powf` — see the crate docs on cross-target determinism.
+            // This is the per-octave amplitude, so the whole fractal below
+            // this octave scales by it.
+            amp *= libm::powf(0.5, 1.0 - self.roughness + 0.5);
         }
 
         data

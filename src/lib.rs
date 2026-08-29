@@ -12,6 +12,30 @@
 //! | [`TerrainGenerator`] | Trait implemented by all generators |
 //! | [`SplatMapper`] / [`WeightMap`] | 4-channel RGBA texture-weight map from height + slope |
 //!
+//! ## Cross-target determinism
+//!
+//! Every consumer of this crate that derives terrain on more than one machine
+//! depends on the same seed producing the same heightmap and the same splat
+//! weights everywhere. Rust does **not** guarantee that for `f32::exp`,
+//! `powf`, `sin`, `cos` and friends: their precision is unspecified and the
+//! implementation is whatever libm the target links — glibc's on x86-64
+//! Linux, `compiler-builtins`' on `wasm32-unknown-unknown`. A native host and
+//! a browser guest therefore compute measurably different terrain from one
+//! seed.
+//!
+//! So this crate routes every transcendental in the derivation path through
+//! the pure-Rust [`libm`] crate, which is bit-identical on all targets. The
+//! affected sites are the hydraulic-erosion deposition kernel, the
+//! Diamond-Square per-octave amplitude, and [`SplatRule`] scoring. `sqrt` is
+//! left alone deliberately: IEEE-754 requires it to be correctly rounded, so
+//! it is already identical everywhere.
+//!
+//! The one place this MATTERS rather than merely tidies is a discrete
+//! decision. A one-ULP difference in a height is invisible; a one-ULP
+//! difference in a [`SplatRule`] weight can flip which of four channels wins
+//! at a texel, and a consumer reading that channel as a biome then scatters
+//! different vegetation there.
+//!
 //! ## Generators
 //!
 //! | Type | Algorithm |
