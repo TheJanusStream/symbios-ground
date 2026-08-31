@@ -1,7 +1,7 @@
 use symbios_ground::{
-    DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, Lake, SplatMapper, TerrainGenerator,
-    ThermalErosion, TiledHeightMap, VoronoiTerracing, derive_tile_seed, sample_biome_at,
-    sample_splat_weights_at,
+    DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, Lake, SplatMapper, SplatRule,
+    TerrainGenerator, ThermalErosion, TiledHeightMap, VoronoiTerracing, derive_tile_seed,
+    sample_biome_at, sample_splat_weights_at,
 };
 
 // ---------------------------------------------------------------------------
@@ -337,6 +337,89 @@ fn thermal_erosion_reduces_extreme_slopes() {
 // ---------------------------------------------------------------------------
 // SplatMapper
 // ---------------------------------------------------------------------------
+
+/// #23: level ground is grass, not the rock fallback.
+///
+/// The sequence that produced this: `SplatMapper::default`'s grass rule names
+/// `slope_range (0.0, 0.3)`, and three of its four rules name `0.0` as a slope
+/// minimum. Under the old tent semantics a range scored zero *at* its
+/// endpoints, so on a perfectly level heightmap every one of the four rules
+/// returned zero, the total fell under `f32::EPSILON`, and `generate` took its
+/// no-rule-matched branch — which paints rock. Flat ground was rock
+/// everywhere, and anything a consumer scattered by dominant biome got rock's
+/// plants on a lawn.
+///
+/// A flat heightmap is the sharpest form of the case: `1 - normal.y` is
+/// exactly `0`, so there is no near-miss for normalisation to rescue.
+#[test]
+fn level_ground_is_grass_and_not_the_rock_fallback() {
+    let hm = HeightMap::new(33, 33, 1.0); // all zeros: dead level
+    let mapper = SplatMapper::default();
+
+    let w = mapper.sample_weights_at(&hm, 16.0, 16.0);
+    assert!(
+        w[0] > 0.0,
+        "grass names slope 0.0 as its minimum, so level ground must score for it: {w:?}"
+    );
+    assert_eq!(
+        mapper.sample_biome_at(&hm, 16.0, 16.0),
+        0,
+        "level ground should be the grass channel, not rock"
+    );
+
+    // And the grid path agrees with the point query — it is a separate branch
+    // with its own fallback constant.
+    let wm = mapper.generate(&hm);
+    assert!(
+        wm.data.iter().all(|p| *p != [0, 0, 255, 0]),
+        "some texel still took the no-rule-matched rock fallback"
+    );
+}
+
+/// #23: a range covers its own endpoints, and fades outside rather than
+/// inside.
+///
+/// This is the property the old tent inverted, stated directly so it cannot
+/// regress into "peaks in the middle" again: the weight at `lo`, at the
+/// midpoint and at `hi` are all equal and full, and it is beyond the range
+/// that the layer gives way.
+#[test]
+fn a_splat_range_is_a_plateau_over_its_own_endpoints() {
+    // Slope is what the reported bug is about; hold height wide open.
+    let rule = SplatRule::new((0.0, 1.0), (0.2, 0.6), 2.0);
+    let at = |slope| rule.weight(0.5, slope);
+
+    let (lo, mid, hi) = (at(0.2), at(0.4), at(0.6));
+    assert!(
+        (lo - 1.0).abs() < 1e-6 && (mid - 1.0).abs() < 1e-6 && (hi - 1.0).abs() < 1e-6,
+        "the declared range should be full weight throughout: {lo}, {mid}, {hi}"
+    );
+    assert!(
+        at(0.15) > 0.0 && at(0.15) < 1.0,
+        "just outside the range should be a partial weight, not a cliff: {}",
+        at(0.15)
+    );
+    assert_eq!(at(0.0), 0.0, "far outside the range should be nothing");
+    assert_eq!(at(1.0), 0.0, "far outside the range should be nothing");
+}
+
+/// #23: `sharpness` still means what its name says once the range is a
+/// plateau — it governs how quickly a layer gives out beyond its range.
+#[test]
+fn sharpness_narrows_the_skirt_outside_a_range() {
+    let soft = SplatRule::new((0.0, 1.0), (0.2, 0.6), 0.5);
+    let hard = SplatRule::new((0.0, 1.0), (0.2, 0.6), 8.0);
+    // A sample outside the range: the soft rule should still reach it, the
+    // hard one should have given up.
+    assert!(
+        soft.weight(0.5, 0.1) > hard.weight(0.5, 0.1),
+        "a softer rule must carry further past its range: {} vs {}",
+        soft.weight(0.5, 0.1),
+        hard.weight(0.5, 0.1)
+    );
+    // Inside the range both are full — sharpness shapes the edge, not the body.
+    assert!((soft.weight(0.5, 0.4) - hard.weight(0.5, 0.4)).abs() < 1e-6);
+}
 
 #[test]
 fn splat_mapper_weights_sum_to_255() {

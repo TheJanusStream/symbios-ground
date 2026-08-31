@@ -101,7 +101,15 @@ const GOLDEN_HEIGHTS: u64 = 10_042_817_713_454_538_825;
 /// the heights because it fails for a different reason: `SplatRule` scoring
 /// COMPARES four `powf` results to pick a channel, so this constant moves when
 /// a comparison flips even if every height is untouched.
-const GOLDEN_SPLAT: u64 = 6_483_499_504_086_671_138;
+///
+/// Re-cut deliberately for 0.4.0 (#23), which is the case the paragraph above
+/// describes: heights are untouched — `GOLDEN_HEIGHTS` did not move — and
+/// every weight changed because ranges became plateaus instead of tents. The
+/// previous value was `6_483_499_504_086_671_138`. On this bake the old
+/// semantics left 13,708 of 16,641 texels on the no-rule-matched rock
+/// fallback, on a terrain whose steepest slope is under 0.1; they are now
+/// grass and dirt, and no texel takes the fallback.
+const GOLDEN_SPLAT: u64 = 8_164_559_026_891_617_516;
 
 #[test]
 fn a_seeded_bake_hashes_to_its_golden() {

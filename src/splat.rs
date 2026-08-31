@@ -1,25 +1,34 @@
 use crate::HeightMap;
 
 /// A rule that maps terrain properties to a weight for one texture channel.
+///
+/// Both ranges are **plateaus with soft edges**: the layer is at full weight
+/// everywhere inside the range, including at both endpoints, and fades to zero
+/// over a skirt outside it whose width `sharpness` controls. Before 0.4.0 they
+/// were tents that peaked at the midpoint and vanished at the endpoints, so a
+/// rule naming `0.0` as its slope minimum scored nothing on level ground —
+/// see `smooth_range` and #23.
 #[derive(Debug, Clone)]
 pub struct SplatRule {
-    /// Height range `[min, max]` in which this layer is active.
+    /// Height range `[min, max]` in which this layer is at full weight.
     pub height_range: (f32, f32),
-    /// Slope range `[min, max]` (0 = flat, 1 = vertical) in which this layer is active.
+    /// Slope range `[min, max]` (0 = flat, 1 = vertical) in which this layer is
+    /// at full weight.
     pub slope_range: (f32, f32),
-    /// Sharpness of the blend falloff. Higher = harder edges.
+    /// Sharpness of the blend falloff outside the ranges. Higher = harder
+    /// edges: the skirt narrows and the ramp across it steepens.
     pub sharpness: f32,
 }
 
 impl SplatRule {
     /// Create a `SplatRule`.
     ///
-    /// * `height_range` — `(min, max)` normalised height `[0, 1]` in which this
-    ///   layer is active.
+    /// * `height_range` — `(min, max)` normalised height `[0, 1]` across which
+    ///   this layer is at full weight; it fades out beyond each end.
     /// * `slope_range` — `(min, max)` slope `[0, 1]` (`0` = flat, `1` = vertical)
-    ///   in which this layer is active.
-    /// * `sharpness` — power applied to the smooth falloff; higher values produce
-    ///   harder, more abrupt transitions between layers.
+    ///   across which this layer is at full weight; likewise.
+    /// * `sharpness` — how abruptly the layer fades outside its ranges. Higher
+    ///   values narrow the skirt and steepen the ramp across it.
     pub fn new(height_range: (f32, f32), slope_range: (f32, f32), sharpness: f32) -> Self {
         Self {
             height_range,
@@ -233,8 +242,36 @@ impl Default for SplatMapper {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Returns a smooth weight for `value` within `[lo, hi]`.
-/// Outside the range the weight falls to 0; inside it peaks at 1.
+/// Returns a weight of `1` for any `value` inside `[lo, hi]`, falling smoothly
+/// to `0` over a skirt of width `edge` *outside* each end.
+///
+/// # Why the range is a plateau and not a tent (#23)
+///
+/// This used to be a tent: it peaked at the midpoint of `[lo, hi]` and reached
+/// zero at both ends. That reading of a range is the opposite of how every
+/// caller writes one. `slope_range: (0.0, 0.3)` means "this layer covers
+/// slopes from level up to 0.3"; under a tent it meant "this layer is absent
+/// on level ground, strongest at 0.15, and absent again at 0.3". Three of the
+/// four rules in [`SplatMapper::default`] name `0.0` as a slope minimum, so
+/// dead-level terrain scored zero in *every* channel and fell through to the
+/// rock fallback — grass did not grow on flat ground anywhere. Near-level
+/// pixels were rescued only by the per-pixel normalisation, which is why it
+/// read as a fringe artifact rather than the systematic hole it was.
+///
+/// So the declared range is now exactly what it says: full weight throughout,
+/// including at both endpoints. Blending between layers happens in the skirts
+/// beyond the range rather than inside it.
+///
+/// `sharpness` keeps its meaning — higher is harder — and now controls the
+/// edge two ways at once: the skirt narrows as `half / (1 + sharpness)`, and
+/// the exponent steepens the ramp within it. At a large `sharpness` the rule
+/// approaches a box; at a small one it fades out over a band as wide as the
+/// range itself.
+///
+/// Two plateaus that overlap both score `1` there, which normalises to an even
+/// blend and, for [`SplatMapper::sample_biome_at`], a tie broken by channel
+/// order. That is deliberate: "both layers are active here" is what overlapping
+/// ranges mean, and the gradient lives in the skirts on either side.
 fn smooth_range(value: f32, lo: f32, hi: f32, sharpness: f32) -> f32 {
     if lo >= hi {
         return if (value - lo).abs() < f32::EPSILON {
@@ -246,11 +283,21 @@ fn smooth_range(value: f32, lo: f32, hi: f32, sharpness: f32) -> f32 {
     let mid = (lo + hi) * 0.5;
     let half = (hi - lo) * 0.5;
     let dist = (value - mid).abs();
+    // Skirt width beyond each end. `half` is strictly positive here, and
+    // `sharpness` is non-negative in every documented use, so this is only
+    // zero if `sharpness` is infinite — in which case the rule is a box and
+    // the branch below returns the right answer anyway.
+    let edge = half / (1.0 + sharpness);
+    if edge <= 0.0 || edge.is_nan() {
+        return if dist <= half { 1.0 } else { 0.0 };
+    }
+    // 1 anywhere inside `[lo, hi]`, ramping to 0 across the skirt.
+    let t = ((half + edge - dist) / edge).clamp(0.0, 1.0);
     // `libm::powf` — see the crate docs on cross-target determinism. This is
     // the sharpest-consequence site in the crate: the four rule weights are
     // COMPARED against each other to pick a dominant channel, so a one-ULP
     // difference between two builds is not a slightly different number, it is
     // a different material on that texel and a different biome for anything a
     // consumer scatters there.
-    libm::powf(1.0 - (dist / half).min(1.0), sharpness)
+    libm::powf(t, sharpness)
 }
