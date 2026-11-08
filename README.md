@@ -29,7 +29,7 @@ weight (splat) mapping.
 ```toml
 # Cargo.toml
 [dependencies]
-symbios-ground = "0.3"
+symbios-ground = "0.4"
 ```
 
 ```rust

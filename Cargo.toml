@@ -1,6 +1,6 @@
 [package]
 name = "symbios-ground"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 authors = ["Janus"]
 description = "An algorithmic terrain engine."
@@ -17,7 +17,7 @@ categories = ["simulation", "game-development", "mathematics"]
 # results as platform-dependent, so a native peer and a browser peer derive
 # measurably different terrain from the same seed.
 libm = "0.2"
-rand = "0.9"
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
 rand_pcg = "0.9"
 serde = { version = "1.0", features = ["derive", "rc"] }
 
